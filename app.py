@@ -41,13 +41,13 @@ def get_market_quotes(symbols):
     for ticker in symbols:
         try:
             t_obj = yf.Ticker(ticker)
-            df_ticker = t_obj.history(period="2d")
+            df_ticker = t_obj.history(period="5d")
             
-            if df_ticker.empty or len(df_ticker) < 1:
+            if df_ticker.empty or len(df_ticker) < 2:
                 continue
             
             latest = df_ticker.iloc[-1]
-            prev = df_ticker.iloc[-2] if len(df_ticker) >= 2 else latest
+            prev = df_ticker.iloc[-2]
             
             close = float(latest["Close"])
             prev_close = float(prev["Close"])
@@ -83,15 +83,19 @@ def get_market_quotes(symbols):
     return pd.DataFrame(result)
 
 def fit_font(draw, text, font_path, max_size, max_width, min_size=25):
-    for size in range(max_size, min_size - 1, -1):
-        font = ImageFont.truetype(str(font_path), size)
-        box = draw.textbbox((0, 0), text, font=font)
-        if box[2] - box[0] <= max_width: return font
-    return ImageFont.truetype(str(font_path), min_size)
+    try:
+        for size in range(max_size, min_size - 1, -1):
+            font = ImageFont.truetype(str(font_path), size)
+            box = draw.textbbox((0, 0), text, font=font)
+            if box[2] - box[0] <= max_width: return font
+        return ImageFont.truetype(str(font_path), min_size)
+    except Exception:
+        return ImageFont.load_default()
 
 def make_cg_image(rows):
     template_path = BASE / "market_cap_template.jpg"
     font_path = BASE / "RixHead_B.ttf"  # 글꼴: Rix헤드 B
+    
     img = Image.open(template_path).convert("RGB")
     draw = ImageDraw.Draw(img)
     
@@ -150,7 +154,7 @@ def make_cg_image(rows):
         pct = float(row["등락률"])
         color = (238, 42, 58) if pct >= 0 else (0, 111, 218)
         arrow = "▲" if pct >= 0 else "▼"
-        arrow_font = ImageFont.truetype(str(font_path), 67)
+        arrow_font = ImageFont.truetype(str(font_path), 67) if (BASE / "RixHead_B.ttf").exists() else ImageFont.load_default()
         draw.text((1335, y1 + 18), arrow, font=arrow_font, fill=color)
         pct_text = f"{abs(pct):.2f}%"
         pct_font = fit_font(draw, pct_text, font_path, 67, 230, 42)
@@ -185,7 +189,7 @@ try:
     with st.spinner("야후 파이낸스에서 데이터를 가져오는 중입니다..."):
         df = get_market_quotes(SYMBOLS)
     if df.empty:
-        st.error("종목 데이터를 가져오지 못했습니다.")
+        st.error("종목 데이터를 가져오지 못했습니다. 잠시 후 새로고침을 눌러주세요.")
         st.stop()
         
     df = df[df["시총숫자"] > 0].copy()
