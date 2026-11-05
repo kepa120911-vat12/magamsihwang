@@ -11,7 +11,7 @@ from pathlib import Path
 st.set_page_config(page_title="US MARKET DASHBOARD", page_icon="📈", layout="wide")
 BASE = Path(__file__).parent
 
-# 스페이스X(SPCX) 포함 티커 리스트
+# 분석 대상 티커 리스트
 SYMBOLS = [
     "NVDA","AAPL","MSFT","AMZN","GOOGL","META","AVGO","BRK-B","TSLA","LLY",
     "WMT","JPM","V","ORCL","NFLX","XOM","MA","COST","JNJ","ABBV","PLTR","AMD",
@@ -38,48 +38,67 @@ KOREAN_NAMES = {
 @st.cache_data(ttl=60)
 def get_market_quotes(symbols):
     result = []
-    for ticker in symbols:
-        try:
-            t_obj = yf.Ticker(ticker)
-            df_ticker = t_obj.history(period="5d")
-            
-            if df_ticker.empty or len(df_ticker) < 2:
-                continue
-            
-            latest = df_ticker.iloc[-1]
-            prev = df_ticker.iloc[-2]
-            
-            close = float(latest["Close"])
-            prev_close = float(prev["Close"])
-            change = close - prev_close
-            change_pct = (change / prev_close) * 100 if prev_close != 0 else 0.0
-            volume = int(latest["Volume"])
-            
-            info = t_obj.info
-            mkt_cap = info.get("marketCap", 0)
-            if not mkt_cap:
+    try:
+        # yfinance 일괄 다운로드로 속도 및 안정성 확보
+        data = yf.download(symbols, period="5d", group_by="ticker", threads=True, progress=False)
+        
+        for ticker in symbols:
+            try:
+                if len(symbols) == 1:
+                    df_ticker = data
+                else:
+                    if ticker not in data.columns.levels[0]:
+                        continue
+                    df_ticker = data[ticker]
+                
+                df_ticker = df_ticker.dropna(subset=["Close"])
+                if df_ticker.empty or len(df_ticker) < 2:
+                    continue
+                
+                latest = df_ticker.iloc[-1]
+                prev = df_ticker.iloc[-2]
+                
+                close = float(latest["Close"])
+                prev_close = float(prev["Close"])
+                change = close - prev_close
+                change_pct = (change / prev_close) * 100 if prev_close != 0 else 0.0
+                volume = int(latest["Volume"]) if "Volume" in latest and not pd.isna(latest["Volume"]) else 0
+                
+                # 시가총액 정보 가져오기
+                t_obj = yf.Ticker(ticker)
+                info = getattr(t_obj, "fast_info", None)
                 mkt_cap = 0
-            
-            if mkt_cap >= 1e12:
-                mktcap_view = f"{mkt_cap / 1e12:.2f}T"
-            elif mkt_cap >= 1e9:
-                mktcap_view = f"{mkt_cap / 1e9:.2f}B"
-            else:
-                mktcap_view = f"{mkt_cap:,}"
+                if info and hasattr(info, "market_cap"):
+                    mkt_cap = info.market_cap
+                if not mkt_cap:
+                    full_info = t_obj.info
+                    mkt_cap = full_info.get("marketCap", 0)
+                
+                if not mkt_cap:
+                    mkt_cap = 0
+                
+                if mkt_cap >= 1e12:
+                    mktcap_view = f"{mkt_cap / 1e12:.2f}T"
+                elif mkt_cap >= 1e9:
+                    mktcap_view = f"{mkt_cap / 1e9:.2f}B"
+                else:
+                    mktcap_view = f"{mkt_cap:,}"
 
-            result.append({
-                "종목명": KOREAN_NAMES.get(ticker, ticker),
-                "티커": ticker.replace("-", "."),
-                "종가": close,
-                "등락": change,
-                "등락률": change_pct,
-                "시가총액": mktcap_view,
-                "시총숫자": float(mkt_cap),
-                "거래량": f"{volume:,}"
-            })
-        except Exception:
-            continue
-            
+                result.append({
+                    "종목명": KOREAN_NAMES.get(ticker, ticker),
+                    "티커": ticker.replace("-", "."),
+                    "종가": close,
+                    "등락": change,
+                    "등락률": change_pct,
+                    "시가총액": mktcap_view,
+                    "시총숫자": float(mkt_cap),
+                    "거래량": f"{volume:,}"
+                })
+            except Exception:
+                continue
+    except Exception as e:
+        st.error(f"데이터 다운로드 중 오류 발생: {e}")
+        
     return pd.DataFrame(result)
 
 def fit_font(draw, text, font_path, max_size, max_width, min_size=25):
@@ -154,7 +173,7 @@ def make_cg_image(rows):
         pct = float(row["등락률"])
         color = (238, 42, 58) if pct >= 0 else (0, 111, 218)
         arrow = "▲" if pct >= 0 else "▼"
-        arrow_font = ImageFont.truetype(str(font_path), 67) if (BASE / "RixHead_B.ttf").exists() else ImageFont.load_default()
+        arrow_font = fit_font(draw, arrow, font_path, 67, 100, 30)
         draw.text((1335, y1 + 18), arrow, font=arrow_font, fill=color)
         pct_text = f"{abs(pct):.2f}%"
         pct_font = fit_font(draw, pct_text, font_path, 67, 230, 42)
@@ -189,7 +208,7 @@ try:
     with st.spinner("야후 파이낸스에서 데이터를 가져오는 중입니다..."):
         df = get_market_quotes(SYMBOLS)
     if df.empty:
-        st.error("종목 데이터를 가져오지 못했습니다. 잠시 후 새로고침을 눌러주세요.")
+        st.error("종목 데이터를 가져오지 못했습니다. 잠시 후 새로고침 버튼을 눌러주세요.")
         st.stop()
         
     df = df[df["시총숫자"] > 0].copy()
