@@ -79,32 +79,63 @@ def fit_font(draw,text,font_path,max_size,max_width,min_size=25):
     return ImageFont.truetype(str(font_path),min_size)
 
 def make_cg_image(rows,page_number):
-    """원본 CG의 5개 행을 통째로 다시 그려 잔상과 중복을 방지합니다."""
+    """원본 CG의 5개 행에 로고 이미지와 텍스트를 함께 그려 잔상과 중복을 방지합니다."""
     template_path=BASE/"market_cap_template.jpg"
     font_path=BASE/"NanumGothic.ttf"
     img=Image.open(template_path).convert("RGB")
     draw=ImageDraw.Draw(img)
+    
     # 1920x1080 원본 템플릿의 실제 행 위치
     y_ranges=[(310,423),(430,541),(548,659),(666,777),(784,902)]
     for (y1,y2),row in zip(y_ranges,rows[:5]):
-        # 각 행의 로고/종목명/등락률 영역 전체를 새로 칠합니다.
+        ticker=str(row["티커"])
+        
+        # 각 행의 영역 초기화
         draw.rectangle((190,y1,480,y2),fill=(255,255,255))
         draw.rectangle((480,y1,1280,y2),fill=(3,23,78))
         draw.rectangle((1280,y1,1730,y2),fill=(5,10,27))
         draw.line((190,y2,1730,y2),fill=(30,70,125),width=3)
 
-        ticker=str(row["티커"])
-        ticker_font=fit_font(draw,ticker,font_path,42,250,26)
-        b=draw.textbbox((0,0),ticker,font=ticker_font)
-        tw,th=b[2]-b[0],b[3]-b[1]
-        draw.text((335-tw/2,y1+(y2-y1-th)/2-b[1]),ticker,font=ticker_font,fill=(20,20,20))
+        # 종목별 로고 이미지 합성 시도 (예: NVDA.png, AAPL.png ...)
+        logo_path=BASE/f"{ticker}.png"
+        if logo_path.exists():
+            try:
+                logo_img=Image.open(logo_path).convert("RGBA")
+                target_height=80  # 로고 목표 높이 설정
+                h_ratio=target_height/logo_img.height
+                new_width=int(logo_img.width*h_ratio)
+                new_height=target_height
+                logo_img=logo_img.resize((new_width,new_height),Image.Resampling.LANCZOS)
 
+                # 로고 영역(190~480)의 정중앙에 배치
+                box_center_x=(190+480)//2
+                box_center_y=y1+(y2-y1)//2
+                logo_x=box_center_x-(new_width//2)
+                logo_y=box_center_y-(new_height//2)
+
+                # 투명 배경(PNG 알파 채널) 유지하며 합성
+                img.paste(logo_img,(logo_x,logo_y),logo_img)
+            except Exception:
+                # 로고 로드 중 에러 발생 시 텍스트(티커)로 대체
+                ticker_font=fit_font(draw,ticker,font_path,42,250,26)
+                b=draw.textbbox((0,0),ticker,font=ticker_font)
+                tw,th=b[2]-b[0],b[3]-b[1]
+                draw.text((335-tw/2,y1+(y2-y1-th)/2-b[1]),ticker,font=ticker_font,fill=(20,20,20))
+        else:
+            # 로고 파일이 없을 경우 기존처럼 티커 글자 출력
+            ticker_font=fit_font(draw,ticker,font_path,42,250,26)
+            b=draw.textbbox((0,0),ticker,font=ticker_font)
+            tw,th=b[2]-b[0],b[3]-b[1]
+            draw.text((335-tw/2,y1+(y2-y1-th)/2-b[1]),ticker,font=ticker_font,fill=(20,20,20))
+
+        # 종목명 출력
         name=f'{row["종목명"]}({ticker})'
         name_font=fit_font(draw,name,font_path,56,750,30)
         b=draw.textbbox((0,0),name,font=name_font)
         tw,th=b[2]-b[0],b[3]-b[1]
         draw.text((880-tw/2,y1+(y2-y1-th)/2-b[1]),name,font=name_font,fill="white")
 
+        # 등락률 출력
         pct=float(row["등락률"])
         color=(238,42,58) if pct>=0 else (0,111,218)
         arrow="▲" if pct>=0 else "▼"
