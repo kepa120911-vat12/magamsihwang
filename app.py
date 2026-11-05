@@ -11,13 +11,13 @@ from pathlib import Path
 st.set_page_config(page_title="US MARKET DASHBOARD", page_icon="📈", layout="wide")
 BASE = Path(__file__).parent
 
-# 스페이스X(SPACE) 추가
+# 스페이스X(SPCX) 포함 티커 리스트
 SYMBOLS = [
     "NVDA","AAPL","MSFT","AMZN","GOOGL","META","AVGO","BRK-B","TSLA","LLY",
     "WMT","JPM","V","ORCL","NFLX","XOM","MA","COST","JNJ","ABBV","PLTR","AMD",
     "BAC","KO","GE","CAT","CSCO","HD","PG","CRM","CVX","IBM","MRK","PM","GS",
     "MS","AXP","UNH","TMO","LIN","MCD","PEP","RTX","INTU","DIS","UBER","NOW",
-    "QCOM","TXN","SPACE"
+    "QCOM","TXN","SPCX"
 ]
 
 KOREAN_NAMES = {
@@ -32,20 +32,16 @@ KOREAN_NAMES = {
     "GS":"골드만삭스","MS":"모건스탠리","AXP":"아메리칸 익스프레스",
     "UNH":"유나이티드헬스","TMO":"써모 피셔","LIN":"린데","MCD":"맥도날드",
     "PEP":"펩시코","RTX":"RTX","INTU":"인튜이트","DIS":"디즈니","UBER":"우버",
-    "NOW":"서비스나우","QCOM":"퀄컴","TXN":"텍사스 인스트루먼트","SPACE":"스페이스X"
+    "NOW":"서비스나우","QCOM":"퀄컴","TXN":"텍사스 인스트루먼트","SPCX":"스페이스X"
 }
 
 @st.cache_data(ttl=60)
 def get_market_quotes(symbols):
     result = []
-    data = yf.download(symbols, period="2d", group_by="ticker", threads=True, progress=False)
-    
     for ticker in symbols:
         try:
-            if len(symbols) == 1:
-                df_ticker = data
-            else:
-                df_ticker = data[ticker]
+            t_obj = yf.Ticker(ticker)
+            df_ticker = t_obj.history(period="2d")
             
             if df_ticker.empty or len(df_ticker) < 1:
                 continue
@@ -59,9 +55,10 @@ def get_market_quotes(symbols):
             change_pct = (change / prev_close) * 100 if prev_close != 0 else 0.0
             volume = int(latest["Volume"])
             
-            t_obj = yf.Ticker(ticker)
             info = t_obj.info
             mkt_cap = info.get("marketCap", 0)
+            if not mkt_cap:
+                mkt_cap = 0
             
             if mkt_cap >= 1e12:
                 mktcap_view = f"{mkt_cap / 1e12:.2f}T"
@@ -77,22 +74,13 @@ def get_market_quotes(symbols):
                 "등락": change,
                 "등락률": change_pct,
                 "시가총액": mktcap_view,
+                "시총숫자": float(mkt_cap),
                 "거래량": f"{volume:,}"
             })
         except Exception:
             continue
             
     return pd.DataFrame(result)
-
-def market_cap_to_number(value):
-    value = str(value or "").upper().replace(",", "").strip()
-    try:
-        if value.endswith("T"): return float(value[:-1]) * 1e12
-        if value.endswith("B"): return float(value[:-1]) * 1e9
-        if value.endswith("M"): return float(value[:-1]) * 1e6
-        return float(value)
-    except ValueError:
-        return 0
 
 def fit_font(draw, text, font_path, max_size, max_width, min_size=25):
     for size in range(max_size, min_size - 1, -1):
@@ -103,7 +91,7 @@ def fit_font(draw, text, font_path, max_size, max_width, min_size=25):
 
 def make_cg_image(rows):
     template_path = BASE / "market_cap_template.jpg"
-    font_path = BASE / "RixHead_B.ttf"  # 글꼴 수정: Rix헤드 B
+    font_path = BASE / "RixHead_B.ttf"  # 글꼴: Rix헤드 B
     img = Image.open(template_path).convert("RGB")
     draw = ImageDraw.Draw(img)
     
@@ -200,7 +188,6 @@ try:
         st.error("종목 데이터를 가져오지 못했습니다.")
         st.stop()
         
-    df["시총숫자"] = df["시가총액"].apply(market_cap_to_number)
     df = df[df["시총숫자"] > 0].copy()
     df = df.sort_values("시총숫자", ascending=False).drop_duplicates("티커").reset_index(drop=True)
     df.insert(0, "순위", range(1, len(df) + 1))
@@ -219,42 +206,19 @@ try:
     st.dataframe(display, hide_index=True, use_container_width=True)
 
     st.divider()
-    st.subheader("📺 방송용 CG 슬라이드쇼 (PPT 전체화면 모드)")
-    st.caption("버튼을 눌러 PPT처럼 순서대로 넘겨보거나 전체화면으로 띄울 수 있습니다.")
-
+    st.subheader("📺 방송용 CG 이미지")
+    st.caption("시가총액 1~5위와 6~10위를 각각 1920×1080 PNG로 생성합니다.")
+    
     page1 = make_cg_image(top10.iloc[:5].to_dict("records"))
     page2 = make_cg_image(top10.iloc[5:10].to_dict("records"))
-
-    # 슬라이드쇼 상태 관리 세션
-    if "slide_idx" not in st.session_state:
-        st.session_state.slide_idx = 0
-
-    slides = [
-        {"title": "1장 | 시가총액 1~5위", "img": page1, "filename": "us_market_cap_top10_1-5.png"},
-        {"title": "2장 | 시가총액 6~10위", "img": page2, "filename": "us_market_cap_top10_6-10.png"}
-    ]
-
-    # 이전/다음 컨트롤 버튼
-    sc1, sc2, sc3 = st.columns([1, 2, 1])
-    with sc1:
-        if st.button("◀ 이전 슬라이드", use_container_width=True):
-            st.session_state.slide_idx = max(0, st.session_state.slide_idx - 1)
-    with sc2:
-        st.markdown(f"<h4 style='text-align: center; color: #00d2ff;'>현재 슬라이드: {st.session_state.slide_idx + 1} / {len(slides)} ({slides[st.session_state.slide_idx]['title']})</h4>", unsafe_allow_html=True)
-    with sc3:
-        if st.button("다음 슬라이드 ▶", use_container_width=True):
-            st.session_state.slide_idx = min(len(slides) - 1, st.session_state.slide_idx + 1)
-
-    # 현재 슬라이드 출력 및 다운로드 버튼 (PNG 형식 유지)
-    current_slide = slides[st.session_state.slide_idx]
-    st.image(current_slide["img"], caption=current_slide["title"], use_container_width=True)
-    st.download_button(
-        f"📥 현재 슬라이드 PNG 저장 ({current_slide['title']})",
-        current_slide["img"],
-        current_slide["filename"],
-        "image/png",
-        use_container_width=True
-    )
+    
+    a, b = st.columns(2)
+    with a:
+        st.image(page1, caption="1장 | 시가총액 1~5위", use_container_width=True)
+        st.download_button("1장 PNG 저장", page1, "us_market_cap_top10_1-5.png", "image/png", use_container_width=True)
+    with b:
+        st.image(page2, caption="2장 | 시가총액 6~10위", use_container_width=True)
+        st.download_button("2장 PNG 저장", page2, "us_market_cap_top10_6-10.png", "image/png", use_container_width=True)
 
     st.divider()
     st.subheader("MARKET CAP RANKING")
