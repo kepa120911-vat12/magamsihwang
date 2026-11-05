@@ -11,7 +11,6 @@ from pathlib import Path
 st.set_page_config(page_title="US MARKET DASHBOARD", page_icon="📈", layout="wide")
 BASE = Path(__file__).parent
 
-# 분석 대상 티커 리스트
 SYMBOLS = [
     "NVDA","AAPL","MSFT","AMZN","GOOGL","META","AVGO","BRK-B","TSLA","LLY",
     "WMT","JPM","V","ORCL","NFLX","XOM","MA","COST","JNJ","ABBV","PLTR","AMD",
@@ -39,9 +38,7 @@ KOREAN_NAMES = {
 def get_market_quotes(symbols):
     result = []
     try:
-        # yfinance 일괄 다운로드로 속도 및 안정성 확보
         data = yf.download(symbols, period="5d", group_by="ticker", threads=True, progress=False)
-        
         for ticker in symbols:
             try:
                 if len(symbols) == 1:
@@ -64,7 +61,6 @@ def get_market_quotes(symbols):
                 change_pct = (change / prev_close) * 100 if prev_close != 0 else 0.0
                 volume = int(latest["Volume"]) if "Volume" in latest and not pd.isna(latest["Volume"]) else 0
                 
-                # 시가총액 정보 가져오기
                 t_obj = yf.Ticker(ticker)
                 info = getattr(t_obj, "fast_info", None)
                 mkt_cap = 0
@@ -73,7 +69,6 @@ def get_market_quotes(symbols):
                 if not mkt_cap:
                     full_info = t_obj.info
                     mkt_cap = full_info.get("marketCap", 0)
-                
                 if not mkt_cap:
                     mkt_cap = 0
                 
@@ -113,7 +108,7 @@ def fit_font(draw, text, font_path, max_size, max_width, min_size=25):
 
 def make_cg_image(rows):
     template_path = BASE / "market_cap_template.jpg"
-    font_path = BASE / "RixHead_B.ttf"  # 글꼴: Rix헤드 B
+    font_path = BASE / "RixHead_B.ttf"
     
     img = Image.open(template_path).convert("RGB")
     draw = ImageDraw.Draw(img)
@@ -141,10 +136,27 @@ def make_cg_image(rows):
         if logo_path:
             try:
                 logo_img = Image.open(logo_path).convert("RGBA")
-                target_height = 80
+                
+                # 영역 크기 정의 (좌측 흰색 박스: x=190~480, y=y1~y2)
+                box_w = 480 - 190 - 30  # 여백 고려
+                box_h = (y2 - y1) - 30  # 여백 고려
+                
+                # 버크셔 해서웨이(BRK.B) 등 길쭉한 로고는 높이를 키우고 너비를 넓게 허용
+                if ticker in ["BRK.B", "BRK-B"]:
+                    target_height = 75
+                else:
+                    target_height = 65
+                
                 h_ratio = target_height / logo_img.height
                 new_width = int(logo_img.width * h_ratio)
                 new_height = target_height
+                
+                # 만약 가로 폭이 박스보다 크면 가로 폭에 맞춰 추가 축소
+                if new_width > box_w:
+                    w_ratio = box_w / logo_img.width
+                    new_width = box_w
+                    new_height = int(logo_img.height * w_ratio)
+
                 logo_img = logo_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
                 box_center_x = (190 + 480) // 2
@@ -164,8 +176,9 @@ def make_cg_image(rows):
             tw, th = b[2] - b[0], b[3] - b[1]
             draw.text((335 - tw / 2, y1 + (y2 - y1 - th) / 2 - b[1]), ticker, font=ticker_font, fill=(20, 20, 20))
 
+        # 종목명 폰트 크기 상향 (최대 60pt)
         name = f'{row["종목명"]}({ticker})'
-        name_font = fit_font(draw, name, font_path, 56, 750, 30)
+        name_font = fit_font(draw, name, font_path, 60, 750, 32)
         b = draw.textbbox((0, 0), name, font=name_font)
         tw, th = b[2] - b[0], b[3] - b[1]
         draw.text((880 - tw / 2, y1 + (y2 - y1 - th) / 2 - b[1]), name, font=name_font, fill="white")
