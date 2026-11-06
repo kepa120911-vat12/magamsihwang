@@ -105,12 +105,12 @@ def make_cg_image(rows):
     
     y_ranges = [(310, 423), (430, 541), (548, 659), (666, 777), (784, 902)]
     
-    # 공통 폰트 로드 (에러 방지용 안전장치 포함)
+    # 폰트 크기를 대폭 상향 (종목명 350pt, 화살표/등락률 400pt)
     try:
-        font_ticker = ImageFont.truetype(str(font_path), 45)
-        font_name = ImageFont.truetype(str(font_path), 60)   # 종목명 폰트 크기 고정 (60pt)
-        font_arrow = ImageFont.truetype(str(font_path), 75)   # 화살표 크기 고정 (75pt)
-        font_pct = ImageFont.truetype(str(font_path), 75)     # 등락률 숫자 크기 고정 (75pt)
+        font_ticker = ImageFont.truetype(str(font_path), 120)
+        font_name = ImageFont.truetype(str(font_path), 350)   
+        font_arrow = ImageFont.truetype(str(font_path), 400)   
+        font_pct = ImageFont.truetype(str(font_path), 400)     
     except Exception:
         font_ticker = ImageFont.load_default()
         font_name = ImageFont.load_default()
@@ -172,25 +172,25 @@ def make_cg_image(rows):
             tw, th = b[2] - b[0], b[3] - b[1]
             draw.text((335 - tw / 2, y1 + (y2 - y1 - th) / 2 - b[1]), ticker, font=font_ticker, fill=(20, 20, 20))
 
-        # 종목명 출력 (중앙 파란색 영역 x: 480 ~ 1280의 정중앙인 880 기준)
+        # 종목명 출력 (중앙 영역 880 기준)
         name = f'{row["종목명"]}({ticker})'
         b = draw.textbbox((0, 0), name, font=font_name)
         tw, th = b[2] - b[0], b[3] - b[1]
         draw.text((880 - tw / 2, y1 + (y2 - y1 - th) / 2 - b[1]), name, font=font_name, fill="white")
 
-        # 등락률 및 화살표 출력 (우측 어두운 영역 x: 1280 ~ 1730 기준)
+        # 등락률 및 화살표 출력
         pct = float(row["등락률"])
         color = (238, 42, 58) if pct >= 0 else (0, 111, 218)
         arrow = "▲" if pct >= 0 else "▼"
         
-        # 화살표 위치
-        draw.text((1320, y1 + (y2 - y1 - 75) / 2), arrow, font=font_arrow, fill=color)
+        # 화살표
+        draw.text((1290, y1 + (y2 - y1 - 400) / 2), arrow, font=font_arrow, fill=color)
         
-        # 등락률 퍼센트 텍스트 위치 (우측 끝에 맞춤)
+        # 등락률 숫자
         pct_text = f"{abs(pct):.2f}%"
         b = draw.textbbox((0, 0), pct_text, font=font_pct)
         tw, th = b[2] - b[0], b[3] - b[1]
-        draw.text((1700 - tw, y1 + (y2 - y1 - th) / 2 - b[1]), pct_text, font=font_pct, fill="white")
+        draw.text((1710 - tw, y1 + (y2 - y1 - th) / 2 - b[1]), pct_text, font=font_pct, fill="white")
 
     output = BytesIO()
     img.save(output, format="PNG")
