@@ -174,7 +174,7 @@ def get_market_quotes(symbols):
 def make_cg_image(rows):
 
     template_path = BASE / "market_cap_template.jpg"
-    font_path = BASE / "RixHead_B.ttf"
+    font_path = BASE / "RIXHEADB.TTF"
 
     img = Image.open(template_path).convert("RGB")
     draw = ImageDraw.Draw(img)
