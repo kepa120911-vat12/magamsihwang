@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -24,6 +25,10 @@ BASE = Path(__file__).parent
 
 TEMPLATE_PATH = BASE / "market_cap_template.jpg"
 FONT_PATH = BASE / "RIXHEADB.TTF"
+
+# 필라델피아 반도체 원본 CG 이미지
+SOX_TEMPLATE_1 = BASE / "필반 1장.png"
+SOX_TEMPLATE_2 = BASE / "필반 2장.png"
 
 
 # ==========================================
@@ -704,8 +709,14 @@ def draw_change(
     arrow_x,
     pct_right,
     y1,
-    y2
+    y2,
+    arrow_size=75,
+    pct_size=75,
+    pct_width=300
 ):
+
+    if pct is None or pd.isna(pct):
+        return
 
     pct = float(pct)
 
@@ -720,7 +731,7 @@ def draw_change(
     arrow_font = get_fitted_font(
         font_path,
         arrow,
-        75,
+        arrow_size,
         85,
         y2 - y1 - 10
     )
@@ -748,8 +759,8 @@ def draw_change(
     pct_font = get_fitted_font(
         font_path,
         pct_text,
-        75,
-        300,
+        pct_size,
+        pct_width,
         y2 - y1 - 10
     )
 
@@ -804,11 +815,6 @@ def make_cg_image(rows):
         (666, 777),
         (784, 902)
     ]
-
-    font_ticker = ImageFont.truetype(
-        str(FONT_PATH),
-        55
-    )
 
     for (y1, y2), row in zip(
         y_ranges,
@@ -899,15 +905,19 @@ def make_cg_image(rows):
 
 
 # ==========================================
-# 반도체 지수 + 구성종목 CG
+# 필라델피아 반도체 원본 CG
 # ==========================================
 
-def make_sox_cg_image(rows, index_data):
+def make_sox_cg_image(
+    rows,
+    index_data,
+    template_path
+):
 
-    if not TEMPLATE_PATH.exists():
+    if not template_path.exists():
 
         raise FileNotFoundError(
-            f"CG 템플릿을 찾을 수 없습니다: {TEMPLATE_PATH}"
+            f"반도체 CG 원본 이미지를 찾을 수 없습니다: {template_path}"
         )
 
     if not FONT_PATH.exists():
@@ -916,185 +926,63 @@ def make_sox_cg_image(rows, index_data):
             f"폰트를 찾을 수 없습니다: {FONT_PATH}"
         )
 
+    # ======================================
+    # 원본 이미지 그대로 불러오기
+    # ======================================
+
     img = Image.open(
-        TEMPLATE_PATH
+        template_path
     ).convert("RGB")
 
     draw = ImageDraw.Draw(img)
 
-    # --------------------------------------
-    # 왼쪽 지수 패널
-    # --------------------------------------
+    # ======================================
+    # 왼쪽 필라델피아 반도체 지수 등락률
+    # ======================================
 
-    panel = (190, 310, 600, 902)
-
-    draw.rectangle(
-        panel,
-        fill=(3, 23, 78)
-    )
-
-    draw.rectangle(
-        (190, 310, 600, 902),
-        outline=(65, 105, 165),
-        width=3
-    )
-
-    # 패널 제목
-    title_lines = [
-        "PHILADELPHIA",
-        "SEMICONDUCTOR",
-        "INDEX"
-    ]
-
-    title_y = 390
-
-    for line in title_lines:
-
-        font = get_fitted_font(
-            FONT_PATH,
-            line,
-            38,
-            360,
-            55
-        )
-
-        bbox = draw.textbbox(
-            (0, 0),
-            line,
-            font=font
-        )
-
-        tw = bbox[2] - bbox[0]
-
-        draw.text(
-            (
-                395 - tw / 2,
-                title_y
-            ),
-            line,
-            font=font,
-            fill=(190, 210, 235)
-        )
-
-        title_y += 58
-
-    # SOX 심볼
-    sox_font = ImageFont.truetype(
-        str(FONT_PATH),
-        80
-    )
-
-    bbox = draw.textbbox(
-        (0, 0),
-        "SOX",
-        font=sox_font
-    )
-
-    tw = bbox[2] - bbox[0]
-
-    draw.text(
-        (
-            395 - tw / 2,
-            590
-        ),
-        "SOX",
-        font=sox_font,
-        fill="white"
-    )
-
-    # 지수 현재값
-    index_price = index_data.get("현재가")
-
-    if index_price is not None:
-
-        price_text = f"{index_price:,.2f}"
-
-    else:
-
-        price_text = "N/A"
-
-    price_font = get_fitted_font(
-        FONT_PATH,
-        price_text,
-        54,
-        360,
-        65
-    )
-
-    bbox = draw.textbbox(
-        (0, 0),
-        price_text,
-        font=price_font
-    )
-
-    tw = bbox[2] - bbox[0]
-
-    draw.text(
-        (
-            395 - tw / 2,
-            700
-        ),
-        price_text,
-        font=price_font,
-        fill="white"
-    )
-
-    # 지수 등락률
     index_pct = index_data.get("등락률")
 
     if index_pct is not None:
 
-        pct_color = (
-            (238, 42, 58)
-            if index_pct >= 0
-            else (0, 111, 218)
+        draw_change(
+            draw,
+            FONT_PATH,
+            index_pct,
+
+            # 화살표 위치
+            260,
+
+            # 등락률 오른쪽 끝
+            610,
+
+            # 왼쪽 패널 아래쪽 영역
+            580,
+            710,
+
+            arrow_size=78,
+            pct_size=75,
+            pct_width=250
         )
 
-        arrow = "▲" if index_pct >= 0 else "▼"
+    # ======================================
+    # 오른쪽 종목별 등락률
+    # ======================================
 
-        pct_text = f"{arrow} {abs(index_pct):.2f}%"
-
-    else:
-
-        pct_color = (200, 200, 200)
-        pct_text = "데이터 없음"
-
-    pct_font = get_fitted_font(
-        FONT_PATH,
-        pct_text,
-        48,
-        360,
-        60
-    )
-
-    bbox = draw.textbbox(
-        (0, 0),
-        pct_text,
-        font=pct_font
-    )
-
-    tw = bbox[2] - bbox[0]
-
-    draw.text(
-        (
-            395 - tw / 2,
-            800
-        ),
-        pct_text,
-        font=pct_font,
-        fill=pct_color
-    )
-
-    # --------------------------------------
-    # 오른쪽 종목 5개
-    # --------------------------------------
+    # 1920 × 1080 원본 이미지 기준
+    # 각 종목 등락률 표시 영역
 
     y_ranges = [
-        (310, 423),
-        (430, 541),
-        (548, 659),
-        (666, 777),
-        (784, 902)
+
+        (202, 326),
+
+        (340, 464),
+
+        (478, 602),
+
+        (616, 740),
+
+        (754, 879)
+
     ]
 
     for (y1, y2), row in zip(
@@ -1102,80 +990,30 @@ def make_sox_cg_image(rows, index_data):
         rows[:5]
     ):
 
-        ticker = str(row["티커"])
+        pct = row.get("등락률")
 
-        # 로고 영역
-        draw.rectangle(
-            (620, y1, 850, y2),
-            fill=(255, 255, 255)
-        )
-
-        # 종목명 영역
-        draw.rectangle(
-            (850, y1, 1400, y2),
-            fill=(3, 23, 78)
-        )
-
-        # 등락률 영역
-        draw.rectangle(
-            (1400, y1, 1730, y2),
-            fill=(5, 10, 27)
-        )
-
-        draw.line(
-            (620, y2, 1730, y2),
-            fill=(30, 70, 125),
-            width=3
-        )
-
-        draw_logo_or_ticker(
-            img,
-            draw,
-            ticker,
-            (630, y1 + 5, 840, y2 - 5),
-            FONT_PATH
-        )
-
-        # 종목명
-        name = f'{row["종목명"]}({ticker})'
-
-        name_font = get_fitted_font(
-            FONT_PATH,
-            name,
-            55,
-            530,
-            y2 - y1 - 15
-        )
-
-        bbox = draw.textbbox(
-            (0, 0),
-            name,
-            font=name_font
-        )
-
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-
-        draw.text(
-            (
-                1125 - tw / 2,
-                y1 + (y2 - y1 - th) / 2 - bbox[1]
-            ),
-            name,
-            font=name_font,
-            fill="white"
-        )
-
-        # 등락률
         draw_change(
             draw,
             FONT_PATH,
-            row["등락률"],
-            1420,
-            1710,
+            pct,
+
+            # 화살표 위치
+            1460,
+
+            # 등락률 오른쪽 끝
+            1720,
+
             y1,
-            y2
+            y2,
+
+            arrow_size=76,
+            pct_size=70,
+            pct_width=220
         )
+
+    # ======================================
+    # PNG 저장
+    # ======================================
 
     output = BytesIO()
 
@@ -1697,20 +1535,84 @@ try:
     )
 
     st.caption(
-        "왼쪽: 필라델피아 반도체 지수 | "
-        "오른쪽: 반도체 구성종목 5개"
+        "원본 CG 디자인 유지 | "
+        "왼쪽: 필라델피아 반도체 지수 등락률 | "
+        "오른쪽: 종목별 등락률"
     )
 
     if not sox_df.empty:
 
+        # ==================================
+        # 원본 이미지에 표시된 순서
+        # ==================================
+
+        page1_order = [
+            "NVDA",
+            "AVGO",
+            "MU",
+            "AMD",
+            "INTC"
+        ]
+
+        page2_order = [
+            "TXN",
+            "LRCX",
+            "KLAC",
+            "QCOM",
+            "MRVL"
+        ]
+
+        # ==================================
+        # 티커 기준으로 등락률 가져오기
+        # ==================================
+
+        sox_lookup = sox_df.set_index("티커")
+
+        def get_cg_rows(order):
+
+            result = []
+
+            for ticker in order:
+
+                if ticker in sox_lookup.index:
+
+                    pct = sox_lookup.loc[
+                        ticker,
+                        "등락률"
+                    ]
+
+                else:
+
+                    pct = None
+
+                result.append({
+
+                    "티커": ticker,
+
+                    "등락률": pct
+
+                })
+
+            return result
+
+        # ==================================
+        # 1장 CG 생성
+        # ==================================
+
         sox_page1 = make_sox_cg_image(
-            sox_df.iloc[:5].to_dict("records"),
-            sox_index
+            get_cg_rows(page1_order),
+            sox_index,
+            SOX_TEMPLATE_1
         )
 
+        # ==================================
+        # 2장 CG 생성
+        # ==================================
+
         sox_page2 = make_sox_cg_image(
-            sox_df.iloc[5:10].to_dict("records"),
-            sox_index
+            get_cg_rows(page2_order),
+            sox_index,
+            SOX_TEMPLATE_2
         )
 
         sox_a, sox_b = st.columns(2)
@@ -1719,7 +1621,7 @@ try:
 
             st.image(
                 sox_page1,
-                caption="1장 | 반도체 시가총액 1~5위",
+                caption="1장 | 반도체 구성종목 1~5",
                 use_container_width=True
             )
 
@@ -1735,7 +1637,7 @@ try:
 
             st.image(
                 sox_page2,
-                caption="2장 | 반도체 시가총액 6~10위",
+                caption="2장 | 반도체 구성종목 6~10",
                 use_container_width=True
             )
 
