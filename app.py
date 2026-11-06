@@ -96,7 +96,7 @@ def get_market_quotes(symbols):
         
     return pd.DataFrame(result)
 
-def fit_font(draw, text, font_path, max_size, max_width, min_size=25):
+def fit_font(draw, text, font_path, max_size, max_width, min_size=30):
     try:
         for size in range(max_size, min_size - 1, -1):
             font = ImageFont.truetype(str(font_path), size)
@@ -136,22 +136,18 @@ def make_cg_image(rows):
         if logo_path:
             try:
                 logo_img = Image.open(logo_path).convert("RGBA")
+                box_w = 480 - 190 - 30
                 
-                # 영역 크기 정의 (좌측 흰색 박스: x=190~480, y=y1~y2)
-                box_w = 480 - 190 - 30  # 여백 고려
-                box_h = (y2 - y1) - 30  # 여백 고려
-                
-                # 버크셔 해서웨이(BRK.B) 등 길쭉한 로고는 높이를 키우고 너비를 넓게 허용
+                # 버크셔 해서웨이 등 길쭉한 로고 세로 크기 확대 (85px)
                 if ticker in ["BRK.B", "BRK-B"]:
-                    target_height = 75
+                    target_height = 85
                 else:
-                    target_height = 65
+                    target_height = 75
                 
                 h_ratio = target_height / logo_img.height
                 new_width = int(logo_img.width * h_ratio)
                 new_height = target_height
                 
-                # 만약 가로 폭이 박스보다 크면 가로 폭에 맞춰 추가 축소
                 if new_width > box_w:
                     w_ratio = box_w / logo_img.width
                     new_width = box_w
@@ -166,33 +162,36 @@ def make_cg_image(rows):
 
                 img.paste(logo_img, (logo_x, logo_y), logo_img)
             except Exception:
-                ticker_font = fit_font(draw, ticker, font_path, 42, 250, 26)
+                ticker_font = fit_font(draw, ticker, font_path, 48, 250, 30)
                 b = draw.textbbox((0, 0), ticker, font=ticker_font)
                 tw, th = b[2] - b[0], b[3] - b[1]
                 draw.text((335 - tw / 2, y1 + (y2 - y1 - th) / 2 - b[1]), ticker, font=ticker_font, fill=(20, 20, 20))
         else:
-            ticker_font = fit_font(draw, ticker, font_path, 42, 250, 26)
+            ticker_font = fit_font(draw, ticker, font_path, 48, 250, 30)
             b = draw.textbbox((0, 0), ticker, font=ticker_font)
             tw, th = b[2] - b[0], b[3] - b[1]
             draw.text((335 - tw / 2, y1 + (y2 - y1 - th) / 2 - b[1]), ticker, font=ticker_font, fill=(20, 20, 20))
 
-        # 종목명 폰트 크기 상향 (최대 60pt)
+        # 종목명 폰트 크기 대폭 상향 (최대 65pt)
         name = f'{row["종목명"]}({ticker})'
-        name_font = fit_font(draw, name, font_path, 60, 750, 32)
+        name_font = fit_font(draw, name, font_path, 65, 760, 35)
         b = draw.textbbox((0, 0), name, font=name_font)
         tw, th = b[2] - b[0], b[3] - b[1]
         draw.text((880 - tw / 2, y1 + (y2 - y1 - th) / 2 - b[1]), name, font=name_font, fill="white")
 
+        # 등락률 및 화살표 폰트 크기 대폭 상향 (최대 78pt)
         pct = float(row["등락률"])
         color = (238, 42, 58) if pct >= 0 else (0, 111, 218)
         arrow = "▲" if pct >= 0 else "▼"
-        arrow_font = fit_font(draw, arrow, font_path, 67, 100, 30)
-        draw.text((1335, y1 + 18), arrow, font=arrow_font, fill=color)
+        
+        arrow_font = fit_font(draw, arrow, font_path, 78, 100, 35)
+        draw.text((1320, y1 + (y2 - y1 - 78) / 2), arrow, font=arrow_font, fill=color)
+        
         pct_text = f"{abs(pct):.2f}%"
-        pct_font = fit_font(draw, pct_text, font_path, 67, 230, 42)
+        pct_font = fit_font(draw, pct_text, font_path, 78, 350, 40)
         b = draw.textbbox((0, 0), pct_text, font=pct_font)
         tw, th = b[2] - b[0], b[3] - b[1]
-        draw.text((1690 - tw, y1 + (y2 - y1 - th) / 2 - b[1]), pct_text, font=pct_font, fill="white")
+        draw.text((1700 - tw, y1 + (y2 - y1 - th) / 2 - b[1]), pct_text, font=pct_font, fill="white")
 
     output = BytesIO()
     img.save(output, format="PNG")
