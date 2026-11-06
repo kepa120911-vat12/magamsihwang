@@ -49,25 +49,28 @@ KOREAN_NAMES = {
 
 
 # ==========================================
-# 폰트 자동 조절 함수
+# 공통 데이터 추출 함수
 # ==========================================
 
-def get_fitted_font(font_path, text, max_size, max_width, max_height):
-    size = max_size
+def get_ticker_data(data, ticker):
 
-    while size > 10:
-        font = ImageFont.truetype(str(font_path), size)
-        bbox = font.getbbox(text)
+    if data is None or data.empty:
+        return pd.DataFrame()
 
-        width = bbox[2] - bbox[0]
-        height = bbox[3] - bbox[1]
+    if isinstance(data.columns, pd.MultiIndex):
 
-        if width <= max_width and height <= max_height:
-            return font
+        level0 = data.columns.get_level_values(0)
+        level1 = data.columns.get_level_values(1)
 
-        size -= 2
+        if ticker in level0:
+            return data[ticker]
 
-    return ImageFont.load_default()
+        if ticker in level1:
+            return data.xs(ticker, axis=1, level=1)
+
+        return pd.DataFrame()
+
+    return data
 
 
 # ==========================================
@@ -79,52 +82,155 @@ def get_market_quotes(symbols):
 
     result = []
 
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    today_et = now_et.date()
+
     try:
-        data = yf.download(
+
+        # 최근 5거래일 일봉 데이터
+        daily_data = yf.download(
             symbols,
             period="5d",
+            interval="1d",
             group_by="ticker",
             threads=True,
-            progress=False
+            progress=False,
+            auto_adjust=False
+        )
+
+        # 당일 1분봉 데이터 (프리마켓/애프터마켓 포함)
+        intraday_data = yf.download(
+            symbols,
+            period="1d",
+            interval="1m",
+            group_by="ticker",
+            threads=True,
+            progress=False,
+            prepost=True,
+            auto_adjust=False
         )
 
         for ticker in symbols:
 
             try:
-                if len(symbols) == 1:
-                    df_ticker = data
-                else:
-                    if ticker not in data.columns.levels[0]:
-                        continue
 
-                    df_ticker = data[ticker]
+                daily = get_ticker_data(daily_data, ticker)
+                intraday = get_ticker_data(intraday_data, ticker)
 
-                df_ticker = df_ticker.dropna(subset=["Close"])
-
-                if df_ticker.empty or len(df_ticker) < 2:
+                if daily.empty:
                     continue
 
-                latest = df_ticker.iloc[-1]
-                prev = df_ticker.iloc[-2]
+                daily = daily.dropna(subset=["Close"])
 
-                close = float(latest["Close"])
-                prev_close = float(prev["Close"])
+                if daily.empty:
+                    continue
 
-                change = close - prev_close
+                # 최근 일봉
+                latest_daily = daily.iloc[-1]
+
+                latest_daily_close = float(
+                    latest_daily["Close"]
+                )
+
+                latest_daily_date = pd.Timestamp(
+                    daily.index[-1]
+                ).date()
+
+                # 오늘의 정규장 일봉이 생성됐는지 확인
+                today_row_exists = (
+                    latest_daily_date == today_et
+                )
+
+                # 당일 정규장 마감 전에는 종가 미확정
+                close_pending = (
+                    today_row_exists
+                    and now_et.hour < 16
+                )
+
+                if close_pending:
+                    official_close = None
+                else:
+                    official_close = latest_daily_close
+
+                # 전일 종가 계산
+                if len(daily) >= 2:
+
+                    prev_close = float(
+                        daily.iloc[-2]["Close"]
+                    )
+
+                else:
+
+                    prev_close = latest_daily_close
+
+                # --------------------------
+                # 현재가 추출
+                # --------------------------
+
+                current_price = None
+
+                if not intraday.empty:
+
+                    intraday = intraday.dropna(
+                        subset=["Close"]
+                    )
+
+                    if not intraday.empty:
+
+                        current_price = float(
+                            intraday.iloc[-1]["Close"]
+                        )
+
+                # 1분봉 데이터가 없으면 최근 일봉 가격 사용
+                if current_price is None:
+
+                    current_price = latest_daily_close
+
+                # --------------------------
+                # 등락률 계산
+                # --------------------------
+
+                # 정규장 마감 전에는 현재가 기준
+                # 정규장 마감 후에는 확정 종가 기준
+
+                reference_price = (
+                    current_price
+                    if close_pending
+                    else official_close
+                )
+
+                if reference_price is None:
+                    reference_price = current_price
+
+                change = reference_price - prev_close
 
                 change_pct = (
                     (change / prev_close) * 100
                     if prev_close != 0 else 0.0
                 )
 
+                # --------------------------
+                # 거래량
+                # --------------------------
+
                 volume = (
-                    int(latest["Volume"])
-                    if "Volume" in latest and not pd.isna(latest["Volume"])
+                    int(latest_daily["Volume"])
+                    if "Volume" in latest_daily
+                    and not pd.isna(latest_daily["Volume"])
                     else 0
                 )
 
+                # --------------------------
+                # 시가총액
+                # --------------------------
+
                 t_obj = yf.Ticker(ticker)
-                info = getattr(t_obj, "fast_info", None)
+
+                info = getattr(
+                    t_obj,
+                    "fast_info",
+                    None
+                )
 
                 mkt_cap = 0
 
@@ -132,8 +238,12 @@ def get_market_quotes(symbols):
                     mkt_cap = info.market_cap
 
                 if not mkt_cap:
-                    full_info = t_obj.info
-                    mkt_cap = full_info.get("marketCap", 0)
+
+                    try:
+                        full_info = t_obj.info
+                        mkt_cap = full_info.get("marketCap", 0)
+                    except Exception:
+                        mkt_cap = 0
 
                 if not mkt_cap:
                     mkt_cap = 0
@@ -148,23 +258,81 @@ def get_market_quotes(symbols):
                     mktcap_view = f"{mkt_cap:,}"
 
                 result.append({
-                    "종목명": KOREAN_NAMES.get(ticker, ticker),
+
+                    "종목명": KOREAN_NAMES.get(
+                        ticker, ticker
+                    ),
+
                     "티커": ticker.replace("-", "."),
-                    "종가": close,
+
+                    "현재가": current_price,
+
+                    "종가": official_close,
+
+                    "종가확정대기": close_pending,
+
                     "등락": change,
+
                     "등락률": change_pct,
+
                     "시가총액": mktcap_view,
+
                     "시총숫자": float(mkt_cap),
+
                     "거래량": f"{volume:,}"
+
                 })
 
             except Exception:
                 continue
 
     except Exception as e:
-        st.error(f"데이터 다운로드 중 오류 발생: {e}")
+
+        st.error(
+            f"데이터 다운로드 중 오류 발생: {e}"
+        )
 
     return pd.DataFrame(result)
+
+
+# ==========================================
+# 폰트 자동 조절 함수
+# ==========================================
+
+def get_fitted_font(
+    font_path,
+    text,
+    max_size,
+    max_width,
+    max_height
+):
+
+    size = max_size
+
+    while size > 10:
+
+        try:
+
+            font = ImageFont.truetype(
+                str(font_path),
+                size
+            )
+
+        except OSError:
+
+            return ImageFont.load_default()
+
+        bbox = font.getbbox(text)
+
+        width = bbox[2] - bbox[0]
+        height = bbox[3] - bbox[1]
+
+        if width <= max_width and height <= max_height:
+            return font
+
+        size -= 2
+
+    return ImageFont.load_default()
 
 
 # ==========================================
@@ -175,6 +343,16 @@ def make_cg_image(rows):
 
     template_path = BASE / "market_cap_template.jpg"
     font_path = BASE / "RIXHEADB.TTF"
+
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"CG 템플릿을 찾을 수 없습니다: {template_path}"
+        )
+
+    if not font_path.exists():
+        raise FileNotFoundError(
+            f"폰트를 찾을 수 없습니다: {font_path}"
+        )
 
     img = Image.open(template_path).convert("RGB")
     draw = ImageDraw.Draw(img)
@@ -187,26 +365,20 @@ def make_cg_image(rows):
         (784, 902)
     ]
 
-    # 기본 폰트 크기
     TICKER_SIZE = 55
     NAME_SIZE = 65
     ARROW_SIZE = 75
     PCT_SIZE = 75
 
-    try:
-        font_ticker = ImageFont.truetype(
-            str(font_path), TICKER_SIZE
-        )
+    font_ticker = ImageFont.truetype(
+        str(font_path),
+        TICKER_SIZE
+    )
 
-    except Exception:
-        font_ticker = ImageFont.load_default()
-
-    # 행별 CG 생성
     for (y1, y2), row in zip(y_ranges, rows[:5]):
 
         ticker = str(row["티커"])
 
-        # 배경 영역
         draw.rectangle(
             (190, y1, 480, y2),
             fill=(255, 255, 255)
@@ -241,6 +413,7 @@ def make_cg_image(rows):
         logo_path = None
 
         for candidate in logo_candidates:
+
             if candidate.exists():
                 logo_path = candidate
                 break
@@ -248,21 +421,26 @@ def make_cg_image(rows):
         if logo_path:
 
             try:
-                logo_img = Image.open(logo_path).convert("RGBA")
 
-                box_w = 260
-                box_h = 85
+                logo_img = Image.open(
+                    logo_path
+                ).convert("RGBA")
 
                 logo_img.thumbnail(
-                    (box_w, box_h),
+                    (260, 85),
                     Image.Resampling.LANCZOS
                 )
 
                 box_center_x = 335
                 box_center_y = (y1 + y2) // 2
 
-                logo_x = box_center_x - logo_img.width // 2
-                logo_y = box_center_y - logo_img.height // 2
+                logo_x = (
+                    box_center_x - logo_img.width // 2
+                )
+
+                logo_y = (
+                    box_center_y - logo_img.height // 2
+                )
 
                 img.paste(
                     logo_img,
@@ -273,14 +451,19 @@ def make_cg_image(rows):
             except Exception:
 
                 b = draw.textbbox(
-                    (0, 0), ticker, font=font_ticker
+                    (0, 0),
+                    ticker,
+                    font=font_ticker
                 )
 
                 tw = b[2] - b[0]
                 th = b[3] - b[1]
 
                 draw.text(
-                    (335 - tw / 2, (y1 + y2 - th) / 2 - b[1]),
+                    (
+                        335 - tw / 2,
+                        (y1 + y2 - th) / 2 - b[1]
+                    ),
                     ticker,
                     font=font_ticker,
                     fill=(20, 20, 20)
@@ -289,14 +472,19 @@ def make_cg_image(rows):
         else:
 
             b = draw.textbbox(
-                (0, 0), ticker, font=font_ticker
+                (0, 0),
+                ticker,
+                font=font_ticker
             )
 
             tw = b[2] - b[0]
             th = b[3] - b[1]
 
             draw.text(
-                (335 - tw / 2, (y1 + y2 - th) / 2 - b[1]),
+                (
+                    335 - tw / 2,
+                    (y1 + y2 - th) / 2 - b[1]
+                ),
                 ticker,
                 font=font_ticker,
                 fill=(20, 20, 20)
@@ -316,7 +504,11 @@ def make_cg_image(rows):
             (y2 - y1) - 15
         )
 
-        b = draw.textbbox((0, 0), name, font=font_name)
+        b = draw.textbbox(
+            (0, 0),
+            name,
+            font=font_name
+        )
 
         tw = b[2] - b[0]
         th = b[3] - b[1]
@@ -353,7 +545,12 @@ def make_cg_image(rows):
             (y2 - y1) - 10
         )
 
-        b = draw.textbbox((0, 0), arrow, font=font_arrow)
+        b = draw.textbbox(
+            (0, 0),
+            arrow,
+            font=font_arrow
+        )
+
         th = b[3] - b[1]
 
         draw.text(
@@ -376,7 +573,11 @@ def make_cg_image(rows):
             (y2 - y1) - 10
         )
 
-        b = draw.textbbox((0, 0), pct_text, font=font_pct)
+        b = draw.textbbox(
+            (0, 0),
+            pct_text,
+            font=font_pct
+        )
 
         tw = b[2] - b[0]
         th = b[3] - b[1]
@@ -393,7 +594,10 @@ def make_cg_image(rows):
 
     output = BytesIO()
 
-    img.save(output, format="PNG")
+    img.save(
+        output,
+        format="PNG"
+    )
 
     return output.getvalue()
 
@@ -445,7 +649,9 @@ with c2:
         ZoneInfo("Asia/Seoul")
     ).strftime("%Y-%m-%d %H:%M:%S")
 
-    st.caption(f"접속 기준 시각: {now} (KST)")
+    st.caption(
+        f"접속 기준 시각: {now} (KST)"
+    )
 
 
 # ==========================================
@@ -472,12 +678,19 @@ try:
     df = df[df["시총숫자"] > 0].copy()
 
     df = (
-        df.sort_values("시총숫자", ascending=False)
+        df.sort_values(
+            "시총숫자",
+            ascending=False
+        )
         .drop_duplicates("티커")
         .reset_index(drop=True)
     )
 
-    df.insert(0, "순위", range(1, len(df) + 1))
+    df.insert(
+        0,
+        "순위",
+        range(1, len(df) + 1)
+    )
 
     top10 = df.head(10).copy()
 
@@ -499,13 +712,16 @@ try:
 
     st.subheader("🏆 US MARKET CAP TOP 10")
 
-    st.caption("야후 파이낸스 기준 시가총액 순위")
+    st.caption(
+        "야후 파이낸스 기준 시가총액 순위"
+    )
 
     display = top10[
         [
             "순위",
             "종목명",
             "티커",
+            "현재가",
             "종가",
             "등락",
             "등락률",
@@ -514,8 +730,12 @@ try:
         ]
     ].copy()
 
+    display["현재가"] = display["현재가"].map(
+        lambda x: f"${x:,.2f}" if pd.notna(x) else "-"
+    )
+
     display["종가"] = display["종가"].map(
-        lambda x: f"${x:,.2f}"
+        lambda x: f"${x:,.2f}" if pd.notna(x) else "-"
     )
 
     display["등락"] = display["등락"].map(
@@ -532,6 +752,11 @@ try:
         use_container_width=True
     )
 
+    st.caption(
+        "현재가: 최신 1분봉 기준 (프리마켓·애프터마켓 포함 가능) | "
+        "종가: 당일 정규장 마감 가격"
+    )
+
     st.divider()
 
     # --------------------------
@@ -544,6 +769,7 @@ try:
         "시가총액 1~5위와 6~10위를 각각 1920×1080 PNG로 생성합니다."
     )
 
+    # 기존 CG에는 등락률만 반영
     page1 = make_cg_image(
         top10.iloc[:5].to_dict("records")
     )
@@ -631,7 +857,7 @@ try:
     )
 
     # --------------------------
-    # 전체 수집 종목
+    # 전체 종목
     # --------------------------
 
     with st.expander("전체 수집 종목 확인"):
@@ -642,6 +868,7 @@ try:
                     "순위",
                     "종목명",
                     "티커",
+                    "현재가",
                     "종가",
                     "등락률",
                     "시가총액",
