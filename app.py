@@ -670,7 +670,10 @@ def draw_change(
     arrow_x,
     pct_right,
     y1,
-    y2
+    y2,
+    font_size=70,
+    arrow_size=48,
+    text_width=205
 ):
 
     if pct is None or pd.isna(pct):
@@ -689,8 +692,8 @@ def draw_change(
     pct_font = get_fitted_font(
         font_path,
         pct_text,
-        70,
-        205,
+        font_size,
+        text_width,
         y2 - y1 - 15
     )
 
@@ -705,8 +708,8 @@ def draw_change(
 
     center_y = (y1 + y2) / 2
 
-    triangle_width = 48
-    triangle_height = 48
+    triangle_width = arrow_size
+    triangle_height = arrow_size
 
     if pct >= 0:
         # 위쪽 삼각형
@@ -910,7 +913,10 @@ def make_sox_cg_image(rows, index_data, template_path):
             245,
             540,
             640,
-            740
+            740,
+            font_size=88,
+            arrow_size=62,
+            text_width=235
         )
     else:
         no_data_font = get_fitted_font(
