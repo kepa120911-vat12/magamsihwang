@@ -673,7 +673,8 @@ def draw_change(
     y2,
     font_size=70,
     arrow_size=48,
-    text_width=205
+    text_width=205,
+    y_offset=0
 ):
 
     if pct is None or pd.isna(pct):
@@ -706,7 +707,7 @@ def draw_change(
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
 
-    center_y = (y1 + y2) / 2
+    center_y = (y1 + y2) / 2 + y_offset
 
     triangle_width = arrow_size
     triangle_height = arrow_size
@@ -916,7 +917,8 @@ def make_sox_cg_image(rows, index_data, template_path):
             740,
             font_size=96,
             arrow_size=68,
-            text_width=255
+            text_width=255,
+            y_offset=-8
         )
     else:
         no_data_font = get_fitted_font(
