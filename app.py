@@ -910,13 +910,13 @@ def make_sox_cg_image(rows, index_data, template_path):
             draw,
             FONT_PATH,
             index_pct,
-            245,
-            540,
+            230,
+            525,
             640,
             740,
-            font_size=88,
-            arrow_size=62,
-            text_width=235
+            font_size=96,
+            arrow_size=68,
+            text_width=255
         )
     else:
         no_data_font = get_fitted_font(
