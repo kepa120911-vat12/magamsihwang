@@ -25,6 +25,10 @@ BASE = Path(__file__).parent
 TEMPLATE_PATH = BASE / "market_cap_template.jpg"
 FONT_PATH = BASE / "RIXHEADB.TTF"
 
+# 필라델피아 반도체 방송용 CG 원본 이미지
+SOX_TEMPLATE_1 = BASE / "필반 1장.png"
+SOX_TEMPLATE_2 = BASE / "필반 2장.png"
+
 
 # ==========================================
 # 시가총액 TOP10 후보 종목
@@ -48,17 +52,13 @@ SYMBOLS = [
 # ==========================================
 
 SOX_SYMBOLS = [
-    "NVDA",
-    "AVGO",
-    "MU",
-    "INTC",
-    "MRVL",
-    "AMD",
-    "TXN",
-    "QCOM",
-    "KLAC",
-    "LRCX"
+    "NVDA", "AVGO", "MU", "INTC", "MRVL",
+    "AMD", "TXN", "QCOM", "KLAC", "LRCX"
 ]
+
+# 업로드한 필반 CG 이미지에 인쇄된 종목 순서와 일치시킵니다.
+SOX_PAGE1_ORDER = ["NVDA", "AVGO", "MU", "AMD", "INTC"]
+SOX_PAGE2_ORDER = ["TXN", "LRCX", "KLAC", "QCOM", "MRVL"]
 
 
 # ==========================================
@@ -861,11 +861,11 @@ def make_cg_image(rows):
 # 종목 로고는 표시하지 않음
 # ==========================================
 
-def make_sox_cg_image(rows, index_data):
+def make_sox_cg_image(rows, index_data, template_path):
 
-    if not TEMPLATE_PATH.exists():
+    if not template_path.exists():
         raise FileNotFoundError(
-            f"CG 템플릿을 찾을 수 없습니다: {TEMPLATE_PATH}"
+            f"필반 CG 템플릿을 찾을 수 없습니다: {template_path}"
         )
 
     if not FONT_PATH.exists():
@@ -873,78 +873,46 @@ def make_sox_cg_image(rows, index_data):
             f"폰트를 찾을 수 없습니다: {FONT_PATH}"
         )
 
-    img = Image.open(
-        TEMPLATE_PATH
-    ).convert("RGB")
-
+    # 업로드한 원본 CG를 그대로 사용합니다.
+    # 제목, 종목명, 배경, 박스 위치는 다시 그리지 않고 등락률만 덧씌웁니다.
+    img = Image.open(template_path).convert("RGB")
     draw = ImageDraw.Draw(img)
 
-    # --------------------------------------
-    # 왼쪽 지수 패널
-    # --------------------------------------
-
-    panel = (190, 310, 620, 902)
-
-    draw.rectangle(
-        panel,
-        fill=(3, 23, 78)
-    )
-
-    # 왼쪽 제목
-    title_lines = [
-        "필라델피아",
-        "반도체 지수"
+    # 1920x1080 원본 이미지 기준 종목별 행 위치
+    y_ranges = [
+        (202, 326),
+        (340, 464),
+        (478, 602),
+        (616, 740),
+        (754, 880)
     ]
 
-    title_y = 435
-
-    for line in title_lines:
-
-        font = get_fitted_font(
+    # 오른쪽 종목별 등락률
+    for (y1, y2), row in zip(y_ranges, rows[:5]):
+        draw_change(
+            draw,
             FONT_PATH,
-            line,
-            65,
-            380,
-            85
+            row.get("등락률"),
+            1390,
+            1705,
+            y1,
+            y2
         )
 
-        bbox = draw.textbbox(
-            (0, 0),
-            line,
-            font=font
-        )
-
-        tw = bbox[2] - bbox[0]
-
-        draw.text(
-            (
-                405 - tw / 2,
-                title_y - bbox[1]
-            ),
-            line,
-            font=font,
-            fill=(255, 196, 0)
-        )
-
-        title_y += 100
-
-    # 왼쪽 지수 등락률
+    # 왼쪽 필라델피아 반도체 지수 등락률
     index_pct = index_data.get("등락률")
 
-    if index_pct is not None:
-
+    if index_pct is not None and pd.notna(index_pct):
         draw_change(
             draw,
             FONT_PATH,
             index_pct,
             245,
             540,
-            680,
-            780
+            640,
+            740
         )
-
     else:
-
         no_data_font = get_fitted_font(
             FONT_PATH,
             "데이터 없음",
@@ -952,110 +920,18 @@ def make_sox_cg_image(rows, index_data):
             350,
             60
         )
-
-        bbox = draw.textbbox(
-            (0, 0),
-            "데이터 없음",
-            font=no_data_font
-        )
-
+        bbox = draw.textbbox((0, 0), "데이터 없음", font=no_data_font)
         tw = bbox[2] - bbox[0]
-
+        th = bbox[3] - bbox[1]
         draw.text(
-            (
-                405 - tw / 2,
-                710 - bbox[1]
-            ),
+            (365 - tw / 2, 690 - th / 2 - bbox[1]),
             "데이터 없음",
             font=no_data_font,
             fill="white"
         )
 
-    # --------------------------------------
-    # 오른쪽 종목 5개
-    # --------------------------------------
-
-    y_ranges = [
-        (310, 423),
-        (430, 541),
-        (548, 659),
-        (666, 777),
-        (784, 902)
-    ]
-
-    for (y1, y2), row in zip(
-        y_ranges,
-        rows[:5]
-    ):
-
-        ticker = str(row["티커"])
-
-        # 종목명 영역
-        draw.rectangle(
-            (620, y1, 1360, y2),
-            fill=(3, 23, 78)
-        )
-
-        # 등락률 영역
-        draw.rectangle(
-            (1360, y1, 1730, y2),
-            fill=(5, 10, 27)
-        )
-
-        draw.line(
-            (620, y2, 1730, y2),
-            fill=(30, 70, 125),
-            width=3
-        )
-
-        # 종목명
-        name = f'{row["종목명"]}({ticker})'
-
-        name_font = get_fitted_font(
-            FONT_PATH,
-            name,
-            65,
-            700,
-            y2 - y1 - 15
-        )
-
-        bbox = draw.textbbox(
-            (0, 0),
-            name,
-            font=name_font
-        )
-
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-
-        draw.text(
-            (
-                990 - tw / 2,
-                y1 + (y2 - y1 - th) / 2 - bbox[1]
-            ),
-            name,
-            font=name_font,
-            fill="white"
-        )
-
-        # 종목별 등락률
-        draw_change(
-            draw,
-            FONT_PATH,
-            row["등락률"],
-            1390,
-            1705,
-            y1,
-            y2
-        )
-
     output = BytesIO()
-
-    img.save(
-        output,
-        format="PNG"
-    )
-
+    img.save(output, format="PNG")
     return output.getvalue()
 
 
@@ -1566,20 +1442,40 @@ try:
     )
 
     st.caption(
-        "왼쪽: 필라델피아 반도체 지수 등락률 | "
-        "오른쪽: 반도체 구성종목 5개와 각각의 등락률"
+        "업로드한 필반 1장·2장 원본 CG를 그대로 사용하고, "
+        "왼쪽에는 지수 등락률 1개, 오른쪽에는 종목별 등락률을 표시합니다."
     )
 
     if not sox_df.empty:
 
+        # 데이터프레임을 티커 기준으로 조회해 원본 이미지에 인쇄된 순서대로 배치합니다.
+        sox_rows_by_ticker = {
+            str(row["티커"]): row
+            for row in sox_df.to_dict("records")
+        }
+
+        sox_page1_rows = [
+            sox_rows_by_ticker[ticker]
+            for ticker in SOX_PAGE1_ORDER
+            if ticker in sox_rows_by_ticker
+        ]
+
+        sox_page2_rows = [
+            sox_rows_by_ticker[ticker]
+            for ticker in SOX_PAGE2_ORDER
+            if ticker in sox_rows_by_ticker
+        ]
+
         sox_page1 = make_sox_cg_image(
-            sox_df.iloc[:5].to_dict("records"),
-            sox_index
+            sox_page1_rows,
+            sox_index,
+            SOX_TEMPLATE_1
         )
 
         sox_page2 = make_sox_cg_image(
-            sox_df.iloc[5:10].to_dict("records"),
-            sox_index
+            sox_page2_rows,
+            sox_index,
+            SOX_TEMPLATE_2
         )
 
         sox_a, sox_b = st.columns(2)
@@ -1588,7 +1484,7 @@ try:
 
             st.image(
                 sox_page1,
-                caption="1장 | 반도체 시가총액 1~5위",
+                caption="1장 | 필라델피아 반도체 구성종목",
                 use_container_width=True
             )
 
@@ -1604,7 +1500,7 @@ try:
 
             st.image(
                 sox_page2,
-                caption="2장 | 반도체 시가총액 6~10위",
+                caption="2장 | 필라델피아 반도체 구성종목",
                 use_container_width=True
             )
 
