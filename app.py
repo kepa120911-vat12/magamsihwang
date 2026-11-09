@@ -883,7 +883,7 @@ def make_sox_cg_image(rows, index_data):
     # 왼쪽 지수 패널
     # --------------------------------------
 
-    panel = (190, 310, 600, 902)
+    panel = (190, 310, 620, 902)
 
     draw.rectangle(
         panel,
@@ -918,7 +918,7 @@ def make_sox_cg_image(rows, index_data):
 
         draw.text(
             (
-                395 - tw / 2,
+                405 - tw / 2,
                 title_y - bbox[1]
             ),
             line,
@@ -938,7 +938,7 @@ def make_sox_cg_image(rows, index_data):
             FONT_PATH,
             index_pct,
             245,
-            520,
+            540,
             680,
             780
         )
@@ -963,7 +963,7 @@ def make_sox_cg_image(rows, index_data):
 
         draw.text(
             (
-                395 - tw / 2,
+                405 - tw / 2,
                 710 - bbox[1]
             ),
             "데이터 없음",
