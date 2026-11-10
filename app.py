@@ -29,6 +29,9 @@ FONT_PATH = BASE / "RIXHEADB.TTF"
 SOX_TEMPLATE_1 = BASE / "필반 1장.png"
 SOX_TEMPLATE_2 = BASE / "필반 2장.png"
 
+# 애프터마켓 방송용 CG 원본 이미지
+AFTERMARKET_TEMPLATE = BASE / "aftermarket_template.png"
+
 
 # ==========================================
 # 시가총액 TOP10 후보 종목
@@ -943,6 +946,186 @@ def make_sox_cg_image(rows, index_data, template_path):
     return output.getvalue()
 
 
+
+
+# ==========================================
+# 애프터마켓 데이터 수집 및 CG
+# ==========================================
+
+@st.cache_data(ttl=60)
+def get_aftermarket_quote(ticker):
+    """
+    Yahoo Finance에서 정규장 종가와 당일 애프터마켓 마지막 1분봉을 조회합니다.
+    애프터마켓 시간(미 동부시간 16:00~20:00)의 데이터만 사용합니다.
+    """
+    ticker = str(ticker).strip().upper()
+    if not ticker:
+        raise ValueError("티커를 입력해 주세요.")
+
+    stock = yf.Ticker(ticker)
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    today_et = now_et.date()
+
+    # 정규장 종가
+    daily = stock.history(period="5d", interval="1d", auto_adjust=False)
+    if daily.empty:
+        raise ValueError(f"{ticker}의 일봉 데이터를 가져오지 못했습니다.")
+
+    daily = daily.dropna(subset=["Close"])
+    today_rows = daily[
+        pd.Index(daily.index).date == today_et
+    ]
+
+    # 현재 날짜의 정규장 일봉이 아직 생성되지 않았으면 가장 최근 일봉 사용
+    regular_close = float(
+        today_rows.iloc[-1]["Close"]
+        if not today_rows.empty
+        else daily.iloc[-1]["Close"]
+    )
+
+    # 프리마켓/정규장/애프터마켓 1분봉 수집
+    intraday = stock.history(
+        period="2d",
+        interval="1m",
+        prepost=True,
+        auto_adjust=False
+    )
+
+    if intraday.empty:
+        raise ValueError(f"{ticker}의 시간외 분봉 데이터를 가져오지 못했습니다.")
+
+    intraday = intraday.dropna(subset=["Close"]).copy()
+
+    # 인덱스를 미국 동부시간으로 변환
+    idx = pd.DatetimeIndex(intraday.index)
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    idx_et = idx.tz_convert("America/New_York")
+    intraday.index = idx_et
+
+    # 당일 16:00~20:00 ET 데이터만 선택
+    after_hours = intraday[
+        (pd.Index(intraday.index.date) == today_et)
+        & (intraday.index.hour >= 16)
+        & (intraday.index.hour < 20)
+    ]
+
+    if after_hours.empty:
+        raise ValueError(
+            "오늘 애프터마켓 거래 데이터가 아직 없습니다. "
+            "미국 동부시간 16:00 이후에 다시 조회해 주세요."
+        )
+
+    latest = after_hours.iloc[-1]
+    after_price = float(latest["Close"])
+    change = after_price - regular_close
+    change_pct = (
+        change / regular_close * 100
+        if regular_close else 0.0
+    )
+    after_volume = int(after_hours["Volume"].fillna(0).sum())
+
+    return {
+        "티커": ticker,
+        "정규장종가": regular_close,
+        "애프터마켓현재가": after_price,
+        "등락": change,
+        "등락률": change_pct,
+        "시간외거래량": after_volume,
+        "기준시각": after_hours.index[-1].strftime("%Y-%m-%d %H:%M:%S ET")
+    }
+
+
+def make_aftermarket_cg(korean_name, quote):
+    """
+    제공된 애프터마켓 CG 원본의 제목/배경/외곽선을 유지하고
+    패널 안쪽에 한글명, 현재가, 티커, 등락액·등락률을 덧씌웁니다.
+    """
+    if not AFTERMARKET_TEMPLATE.exists():
+        raise FileNotFoundError(
+            f"애프터마켓 CG 템플릿을 찾을 수 없습니다: {AFTERMARKET_TEMPLATE}"
+        )
+    if not FONT_PATH.exists():
+        raise FileNotFoundError(f"폰트를 찾을 수 없습니다: {FONT_PATH}")
+
+    img = Image.open(AFTERMARKET_TEMPLATE).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    # 원본 CG의 테두리는 살리고 내부 텍스트 영역만 덮습니다.
+    draw.rectangle(
+        (286, 410, 1634, 862),
+        fill=(4, 16, 47)
+    )
+
+    pct = float(quote["등락률"])
+    color = (238, 0, 0) if pct >= 0 else (0, 190, 235)
+
+    # 왼쪽: 한글 기업명
+    name = str(korean_name).strip() or quote["티커"]
+    name_font = get_fitted_font(
+        FONT_PATH, name, 145, 900, 155
+    )
+    draw.text(
+        (335, 438),
+        name,
+        font=name_font,
+        fill="white",
+        stroke_width=2,
+        stroke_fill=(0, 0, 0)
+    )
+
+    # 왼쪽 아래: 애프터마켓 현재가
+    price_text = f'{quote["애프터마켓현재가"]:,.2f}'
+    price_font = get_fitted_font(
+        FONT_PATH, price_text, 160, 690, 175
+    )
+    draw.text(
+        (330, 655),
+        price_text,
+        font=price_font,
+        fill=color,
+        stroke_width=2,
+        stroke_fill=(0, 0, 0)
+    )
+
+    # 오른쪽 위: 티커
+    ticker = quote["티커"]
+    ticker_font = get_fitted_font(
+        FONT_PATH, ticker, 76, 570, 90
+    )
+    ticker_bbox = draw.textbbox((0, 0), ticker, font=ticker_font)
+    ticker_width = ticker_bbox[2] - ticker_bbox[0]
+    draw.text(
+        (1030 + (570 - ticker_width) / 2, 585),
+        ticker,
+        font=ticker_font,
+        fill=(220, 220, 220)
+    )
+
+    # 오른쪽 아래: 등락액 + 등락률
+    change_text = (
+        f'{quote["등락"]:+,.2f} ({quote["등락률"]:+.2f}%)'
+    )
+    change_font = get_fitted_font(
+        FONT_PATH, change_text, 76, 610, 95
+    )
+    change_bbox = draw.textbbox((0, 0), change_text, font=change_font)
+    change_width = change_bbox[2] - change_bbox[0]
+    draw.text(
+        (1010 + (610 - change_width) / 2, 680),
+        change_text,
+        font=change_font,
+        fill=color,
+        stroke_width=1,
+        stroke_fill=(0, 0, 0)
+    )
+
+    output = BytesIO()
+    img.save(output, format="PNG")
+    return output.getvalue()
+
+
+
 # ==========================================
 # 홈페이지 디자인
 # ==========================================
@@ -1521,6 +1704,103 @@ try:
             )
 
     st.divider()
+
+
+
+    st.divider()
+
+    # ======================================
+    # AFTER MARKET 검색 및 방송용 CG
+    # ======================================
+
+    st.subheader("🌙 AFTER MARKET 특징주")
+    st.caption(
+        "티커를 검색하면 Yahoo Finance의 애프터마켓 현재가와 "
+        "정규장 종가 대비 등락 정보를 조회하고 방송용 CG를 생성합니다."
+    )
+
+    with st.form("aftermarket_search_form"):
+        am_col1, am_col2 = st.columns([1, 1])
+        with am_col1:
+            am_ticker = st.text_input(
+                "미국 주식 티커",
+                placeholder="예: IONQ, IREN, NVDA"
+            ).strip().upper()
+        with am_col2:
+            suggested_name = KOREAN_NAMES.get(am_ticker, "")
+            am_name = st.text_input(
+                "한글 종목명",
+                value=suggested_name,
+                placeholder="예: 아이온큐"
+            ).strip()
+
+        am_submit = st.form_submit_button(
+            "애프터마켓 조회 및 CG 생성",
+            use_container_width=True
+        )
+
+    if am_submit:
+        if not am_ticker:
+            st.warning("조회할 티커를 입력해 주세요.")
+        else:
+            try:
+                with st.spinner(f"{am_ticker} 애프터마켓 데이터를 조회하고 있습니다..."):
+                    am_quote = get_aftermarket_quote(am_ticker)
+                    am_quote["종목명"] = am_name or KOREAN_NAMES.get(am_ticker, am_ticker)
+                    am_cg = make_aftermarket_cg(am_quote["종목명"], am_quote)
+
+                st.session_state["aftermarket_quote"] = am_quote
+                st.session_state["aftermarket_cg"] = am_cg
+
+            except Exception as e:
+                st.session_state.pop("aftermarket_quote", None)
+                st.session_state.pop("aftermarket_cg", None)
+                st.error(f"애프터마켓 조회 실패: {e}")
+
+    if st.session_state.get("aftermarket_quote") and st.session_state.get("aftermarket_cg"):
+        am_result = st.session_state["aftermarket_quote"]
+        am_image = st.session_state["aftermarket_cg"]
+
+        st.markdown("#### 조회 결과")
+
+        am_m1, am_m2, am_m3, am_m4 = st.columns(4)
+        am_m1.metric(
+            "애프터마켓 현재가",
+            f'${am_result["애프터마켓현재가"]:,.2f}'
+        )
+        am_m2.metric(
+            "정규장 종가",
+            f'${am_result["정규장종가"]:,.2f}'
+        )
+        am_m3.metric(
+            "시간외 등락",
+            f'${am_result["등락"]:+,.2f}'
+        )
+        am_m4.metric(
+            "시간외 등락률",
+            f'{am_result["등락률"]:+.2f}%'
+        )
+
+        st.caption(
+            f'종목: {am_result["종목명"]} ({am_result["티커"]}) | '
+            f'시간외 누적 거래량: {am_result["시간외거래량"]:,}주 | '
+            f'마지막 데이터: {am_result["기준시각"]}'
+        )
+
+        st.image(
+            am_image,
+            caption="애프터마켓 특징주 방송용 CG",
+            use_container_width=True
+        )
+
+        st.download_button(
+            "애프터마켓 CG PNG 저장",
+            am_image,
+            f'aftermarket_{am_result["티커"]}.png',
+            "image/png",
+            use_container_width=True
+        )
+
 
     # ======================================
     # 전체 수집 종목
