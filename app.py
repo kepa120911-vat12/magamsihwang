@@ -1039,7 +1039,10 @@ def get_aftermarket_quote(ticker):
 def make_aftermarket_cg(korean_name, quote):
     """
     제공된 애프터마켓 CG 원본의 제목/배경/외곽선을 유지하고
-    패널 안쪽에 한글명, 현재가, 티커, 등락액·등락률을 덧씌웁니다.
+    패널 안쪽에 한글명, 현재가, 티커, 등락액·등락률을 배치합니다.
+
+    오른쪽 티커와 등락 문구는 같은 왼쪽 기준선에 정렬하고,
+    등락 문구의 하단은 왼쪽 현재가의 하단과 맞춥니다.
     """
     if not AFTERMARKET_TEMPLATE.exists():
         raise FileNotFoundError(
@@ -1052,21 +1055,17 @@ def make_aftermarket_cg(korean_name, quote):
     draw = ImageDraw.Draw(img)
 
     # 원본 CG의 테두리는 살리고 내부 텍스트 영역만 덮습니다.
-    draw.rectangle(
-        (286, 410, 1634, 862),
-        fill=(4, 16, 47)
-    )
+    draw.rectangle((286, 410, 1634, 862), fill=(4, 16, 47))
 
     pct = float(quote["등락률"])
     color = (238, 0, 0) if pct >= 0 else (0, 190, 235)
 
     # 왼쪽: 한글 기업명
     name = str(korean_name).strip() or quote["티커"]
-    name_font = get_fitted_font(
-        FONT_PATH, name, 145, 900, 155
-    )
+    name_font = get_fitted_font(FONT_PATH, name, 145, 900, 155)
+    name_x, name_y = 335, 445
     draw.text(
-        (335, 438),
+        (name_x, name_y),
         name,
         font=name_font,
         fill="white",
@@ -1076,11 +1075,10 @@ def make_aftermarket_cg(korean_name, quote):
 
     # 왼쪽 아래: 애프터마켓 현재가
     price_text = f'{quote["애프터마켓현재가"]:,.2f}'
-    price_font = get_fitted_font(
-        FONT_PATH, price_text, 160, 690, 175
-    )
+    price_font = get_fitted_font(FONT_PATH, price_text, 160, 690, 175)
+    price_x, price_y = 330, 655
     draw.text(
-        (330, 655),
+        (price_x, price_y),
         price_text,
         font=price_font,
         fill=color,
@@ -1088,31 +1086,37 @@ def make_aftermarket_cg(korean_name, quote):
         stroke_fill=(0, 0, 0)
     )
 
-    # 오른쪽 위: 티커
+    # 현재가의 실제 글자 하단 좌표를 기준으로 오른쪽 등락 문구 하단 정렬
+    price_bbox = draw.textbbox((price_x, price_y), price_text, font=price_font)
+
+    # 오른쪽: 티커와 등락 문구를 동일한 왼쪽 기준선에 정렬
     ticker = quote["티커"]
-    ticker_font = get_fitted_font(
-        FONT_PATH, ticker, 76, 570, 90
+    ticker_x = 1030
+    ticker_font = get_fitted_font(FONT_PATH, ticker, 76, 570, 90)
+
+    change_text = f'{quote["등락"]:+,.2f} ({quote["등락률"]:+.2f}%)'
+    change_font = get_fitted_font(FONT_PATH, change_text, 76, 610, 95)
+
+    change_bbox_origin = draw.textbbox((0, 0), change_text, font=change_font)
+    target_bottom = price_bbox[3]
+    change_y = target_bottom - change_bbox_origin[3]
+
+    ticker_bbox_origin = draw.textbbox((0, 0), ticker, font=ticker_font)
+    ticker_y = (
+        change_y
+        + change_bbox_origin[1]
+        - 12
+        - ticker_bbox_origin[3]
     )
-    ticker_bbox = draw.textbbox((0, 0), ticker, font=ticker_font)
-    ticker_width = ticker_bbox[2] - ticker_bbox[0]
+
     draw.text(
-        (1030 + (570 - ticker_width) / 2, 585),
+        (ticker_x, ticker_y),
         ticker,
         font=ticker_font,
         fill=(220, 220, 220)
     )
-
-    # 오른쪽 아래: 등락액 + 등락률
-    change_text = (
-        f'{quote["등락"]:+,.2f} ({quote["등락률"]:+.2f}%)'
-    )
-    change_font = get_fitted_font(
-        FONT_PATH, change_text, 76, 610, 95
-    )
-    change_bbox = draw.textbbox((0, 0), change_text, font=change_font)
-    change_width = change_bbox[2] - change_bbox[0]
     draw.text(
-        (1010 + (610 - change_width) / 2, 680),
+        (ticker_x, change_y),
         change_text,
         font=change_font,
         fill=color,
@@ -1123,7 +1127,6 @@ def make_aftermarket_cg(korean_name, quote):
     output = BytesIO()
     img.save(output, format="PNG")
     return output.getvalue()
-
 
 
 # ==========================================
