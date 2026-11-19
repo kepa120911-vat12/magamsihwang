@@ -46,7 +46,7 @@ SYMBOLS = [
     "CVX", "IBM", "MRK", "PM", "GS", "MS",
     "AXP", "UNH", "TMO", "LIN", "MCD", "PEP",
     "RTX", "INTU", "DIS", "UBER", "NOW", "QCOM",
-    "TXN", "SPCX"
+    "TXN", "SPCX", "ANT"
 ]
 
 
@@ -119,6 +119,7 @@ KOREAN_NAMES = {
     "QCOM": "퀄컴",
     "TXN": "텍사스 인스트루먼트",
     "SPCX": "스페이스X",
+    "ANT" : "앤트로픽",
 
     # 반도체 추가 종목
     "MU": "마이크론",
